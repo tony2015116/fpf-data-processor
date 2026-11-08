@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
+
+# 数据与输出 (不要提交真实生产数据)
+*.xlsx
+*.xls
+*.csv
+*.rds
+*.log
+~$*
+
+# 本地规则 / 设置
+.fpf_breed_rules.json
+
+# 系统文件
+.DS_Store
+Thumbs.db
+.Rhistory
+.RData
+.Rproj.user/

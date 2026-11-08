@@ -1,0 +1,26 @@
+# 推到 GitHub 后, 在 Actions 页面点 "Run workflow", 几分钟后在该次运行的
+# Artifacts 里下载 FPF数据处理.exe (本机不用装 Python)
+name: build-exe
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt pyinstaller
+      - run: pyinstaller FPF.spec --noconfirm --clean
+      - name: smoke test
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem dist -Filter *.exe | Select-Object -First 1
+          & $exe.FullName --help | Out-Null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FPF-exe
+          path: dist/*.exe

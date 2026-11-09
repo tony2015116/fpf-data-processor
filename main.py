@@ -98,6 +98,8 @@ def attach_parent_console():
     这里接回启动它的命令行窗口, 并开启颜色(ANSI)和 UTF-8。"""
     if not (sys.platform.startswith("win") and getattr(sys, "frozen", False)):
         return
+    if sys.stdout is not None:   # 输出已重定向到文件 / 管道(如 R system2), 保持不变
+        return
     try:
         import ctypes
         import msvcrt
@@ -116,6 +118,41 @@ def attach_parent_console():
         pass
 
 
+def use_utf8_output():
+    """输出被重定向(管道 / 文件, 如 R 的 system2、PowerShell 的 | )时, Windows 默认用
+    cp1252 / GBK 等编码, 打印中文会报 UnicodeEncodeError。统一改为 UTF-8, 无法编码的字符替换。"""
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name)
+        try:
+            if (getattr(stream, "encoding", "") or "").lower().replace("-", "") != "utf8":
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+def run_command_line() -> int:
+    """命令行模式。出错时把错误信息写到输出并返回 1;
+    不让异常抛到打包程序外面, 否则窗口版 exe 会弹出对话框一直等待, 定时任务 / 自动打包会卡住。"""
+    try:
+        parser = build_parser()
+        args = parser.parse_args()
+        if args.judge:
+            return run_judge(args.judge, args.rules)
+        if args.cli:
+            return run_cli(args)
+        parser.print_help()
+        return 0
+    except SystemExit as e:          # argparse: --help 或参数错误
+        return e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+    except Exception:
+        try:
+            sys.stderr.write(traceback.format_exc())
+            sys.stderr.flush()
+        except Exception:
+            pass
+        return 1
+
+
 def main():
     multiprocessing.freeze_support()  # 打包后多进程读取必需
     if len(sys.argv) > 1:
@@ -125,14 +162,9 @@ def main():
         sys.stdout = open(os.devnull, "w", encoding="utf-8")
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w", encoding="utf-8")
+    use_utf8_output()
     if len(sys.argv) > 1:
-        args = build_parser().parse_args()
-        if args.judge:
-            sys.exit(run_judge(args.judge, args.rules))
-        if args.cli:
-            sys.exit(run_cli(args))
-        build_parser().print_help()
-        return
+        sys.exit(run_command_line())
     from fpf.gui import run_gui
     run_gui(APP_NAME, APP_VERSION, CONFIG_PATH)
 

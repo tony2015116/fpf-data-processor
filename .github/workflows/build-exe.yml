@@ -1,13 +1,18 @@
-# 推到 GitHub 后, 在 Actions 页面点 "Run workflow", 几分钟后在该次运行的
-# Artifacts 里下载 FPF数据处理.exe (本机不用装 Python)
+# 打包 FPF数据处理.exe
+# - 手动运行: Actions 页面点 "Run workflow", 几分钟后在该次运行的 Artifacts 里下载
+# - 发布版本: 推送 v 开头的标签(如 git tag v1.0.0 && git push origin v1.0.0),
+#   打包后自动创建 Release, 附 fpf-data-processor-windows.zip
 name: build-exe
 on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+permissions:
+  contents: write
 jobs:
   windows:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -15,12 +20,34 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -r requirements.txt pyinstaller
       - run: pyinstaller FPF.spec --noconfirm --clean
+
+      # 实际判定一次品种品系, 检查 exe 能启动、能输出中文; 最多等 2 分钟
       - name: smoke test
         shell: pwsh
+        timeout-minutes: 5
         run: |
           $exe = Get-ChildItem dist -Filter *.exe | Select-Object -First 1
-          & $exe.FullName --help | Out-Null
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList "--judge","S332" `
+               -RedirectStandardOutput out.txt -RedirectStandardError err.txt -PassThru -NoNewWindow
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); Write-Error "exe 运行超时"; exit 1 }
+          $out = Get-Content out.txt -Raw -Encoding UTF8
+          Write-Host $out
+          Get-Content err.txt -Raw -Encoding UTF8 | Write-Host
+          if ($p.ExitCode -ne 0) { Write-Error "退出码 $($p.ExitCode)"; exit 1 }
+          if ($out -notmatch "杜洛克") { Write-Error "判定结果不对"; exit 1 }
+
       - uses: actions/upload-artifact@v4
         with:
           name: FPF-exe
           path: dist/*.exe
+
+      - name: zip for release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: Compress-Archive -Path dist/*.exe -DestinationPath fpf-data-processor-windows.zip
+
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: fpf-data-processor-windows.zip
+          generate_release_notes: true
